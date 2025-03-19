@@ -6,16 +6,17 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import PDFDocument from 'pdfkit'; 
 import { createWriteStream, unlinkSync } from 'fs';  // For writing the PDF file
-const cors = require('cors');
+import cors from 'cors';
 
 
 // const router = express.Router();
-app.use(cors({ origin: process.env.FRONTEND_LIVE_URL})); // frontend URL
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY}); //openai API key
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY); // Gemini API key
+
+app.use(cors({ origin: process.env.FRONTEND_LIVE_URL})); // frontend URL
 
 app.use(json());
 
