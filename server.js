@@ -4,7 +4,6 @@ import express, { json } from 'express';
 import { YoutubeTranscript } from 'youtube-transcript';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import PDFDocument from 'pdfkit'; 
-import { createWriteStream, unlinkSync } from 'fs';  // For writing the PDF file
 import cors from 'cors';
 
 
@@ -19,18 +18,33 @@ app.use(cors({ origin: process.env.FRONTEND_LIVE_URL})); // frontend URL
 app.use(json());
 
 app.get('/api/transcript', async (req, res) => {
-    const { url } = req.query;
-    if (!url) return res.status(400).json({ error: "Please provide a valid YouTube URL." });
+  const { url } = req.query;
 
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({
+      error: 'Please provide a valid YouTube URL.'
+    });
+  }
+
+  try {
     const videoId = extractVideoId(url);
+    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+    const transcriptText = transcript
+      .map((entry) => entry.text)
+      .join(' ');
 
-    try {
-        const transcript = await YoutubeTranscript.fetchTranscript(videoId);
-        const transcriptText = transcript.map(entry => entry.text).join(' ');
-        res.json({ transcript: transcriptText });
-    } catch (error) {
-        res.status(500).json({ error: "Failed to fetch transcript. " + error.message });
-    }
+    return res.json({
+      transcript: transcriptText
+    });
+  } catch (error) {
+    const isInvalidUrl = error.message === 'Invalid YouTube URL.';
+
+    return res.status(isInvalidUrl ? 400 : 500).json({
+      error: isInvalidUrl
+        ? error.message
+        : `Failed to fetch transcript: ${error.message}`
+    });
+  }
 });
 
 function extractVideoId(url) {
@@ -76,39 +90,55 @@ app.post('/api/analyze-transcript', async (req, res) => {
 });
 
 app.post('/api/download-analyzed-pdf', (req, res) => {
-    const { content } = req.body;
+  const { content } = req.body;
 
-    if (!content) {
-        return res.status(400).json({ error: 'No content provided.' });
-    }
+  if (!content || typeof content !== 'string' || !content.trim()) {
+    return res.status(400).json({
+      error: 'Content is required to generate the PDF.'
+    });
+  }
 
-    const doc = new PDFDocument();
-    const filename = `analyzed_transcript_${Date.now()}.pdf`;
-    const filePath = `./downloads/${filename}`;
+  try {
+    const filename = `analyzed-transcript-${Date.now()}.pdf`;
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 50
+    });
 
-    const writeStream = createWriteStream(filePath);
-    doc.pipe(writeStream);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`
+    );
+
+    doc.pipe(res);
 
     doc
-        .fontSize(18)
-        .text('Analyzed Transcript', { align: 'center' })
-        .moveDown(1)
-        .fontSize(12)
-        .text(content, { align: 'left' });
+      .fontSize(20)
+      .text('Analysed Transcript', {
+        align: 'center'
+      })
+      .moveDown();
+
+    doc
+      .fontSize(11)
+      .text(content.trim(), {
+        align: 'left',
+        lineGap: 4
+      });
 
     doc.end();
+  } catch (error) {
+    console.error('PDF generation failed:', error);
 
-    writeStream.on('finish', () => {
-        console.log(`✅ PDF created at: ${filePath}`);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: 'Failed to generate PDF.'
+      });
+    }
 
-        res.download(filePath, filename, (err) => {
-            if (err) {
-                console.error('Error sending PDF:', err);
-                res.status(500).json({ error: 'Failed to download PDF.' });
-            }
-            unlinkSync(filePath); // Clean up
-        });
-    });
+    res.end();
+  }
 });
 
 
