@@ -1,7 +1,7 @@
 import { YoutubeTranscript } from 'youtube-transcript';
 import { fetchTranscript as fetchTranscriptFallback } from 'youtube-transcript-plus';
 
-import AppError from '../utils/AppError.js';
+import { AppError } from '../utils/app-error.js';
 
 const TRANSCRIPT_TIMEOUT_MS = 20_000;
 
