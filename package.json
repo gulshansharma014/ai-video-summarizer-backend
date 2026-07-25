@@ -1,6 +1,9 @@
 {
-  "name": "ai-video-summarizer",
+  "name": "ai-video-summarizer-backend",
   "version": "1.0.0",
+  "description": "Express API for YouTube transcript extraction, Gemini-powered analysis and PDF generation.",
+  "author": "Gulshan Kumar",
+  "license": "MIT",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -9,9 +12,6 @@
     "test": "echo \"Tests not implemented yet\""
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
     "cors": "^2.8.5",
