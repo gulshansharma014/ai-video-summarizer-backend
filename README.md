@@ -351,23 +351,28 @@ clients can handle failures consistently.
 
 ## Current Limitations
 
-- Transcript extraction depends on transcript availability.
-- Private and restricted videos may not be supported.
-- AI processing depends on Gemini API availability and usage limits.
-- Authentication and persistent user history are not implemented.
-- Very long transcripts are currently rejected instead of processed in chunks.
+- Transcript extraction depends on transcript availability for the selected video.
+- Some private, restricted or unsupported videos cannot be processed.
+- AI analysis depends on the availability and limits of the configured Gemini API.
+- Authentication and persistent user history are not currently implemented.
+- Very long transcripts are rejected instead of being processed in chunks.
 
 ## Planned Improvements
 
-- [ ] Add Docker and Docker Compose
-- [ ] Add transcript chunking for long videos
-- [ ] Add configurable analysis formats
-- [ ] Add transcript-language selection
-- [ ] Add structured logging
-- [ ] Add OpenAPI documentation
-- [ ] Add authentication and saved analysis history
-- [ ] Add Redis-backed distributed rate limiting
-- [ ] Add observability and request metrics
+- [x] Improve backend modularity and separation of concerns
+- [x] Add request validation and centralised error handling
+- [x] Add unit and API integration tests
+- [x] Add GitHub Actions for backend validation
+- [x] Add API rate limiting
+- [x] Stream PDF output without temporary file storage
+- [x] Add backend security headers
+- [ ] Add Docker support
+- [ ] Add frontend CI validation
+- [ ] Add transcript language selection
+- [ ] Add configurable summary formats
+- [ ] Add persistent summary history
+- [ ] Add authentication and user workspaces
+- [ ] Improve frontend accessibility and loading states
 
 ## Related Repositories
 
