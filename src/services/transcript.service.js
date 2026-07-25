@@ -46,25 +46,34 @@ export const fetchTranscript = async (url) => {
       .join(' ')
       .trim();
   } catch (error) {
-      console.error("Raw transcript provider error:", {
+      console.error('Raw transcript provider error:', {
       name: error?.name,
       message: error?.message,
-      code: error?.code,
-      status: error?.status,
-      statusCode: error?.statusCode,
-      cause: error?.cause,
-      responseStatus: error?.response?.status,
-      responseData: error?.response?.data,
       stack: error?.stack,
     });
-    if (error instanceof AppError) {
-      throw error;
+
+    if (isTranscriptUnavailableError(error)) {
+      throw new AppError(
+        'The transcript provider could not retrieve captions for this video.',
+        422,
+        'TRANSCRIPT_PROVIDER_UNAVAILABLE'
+      );
     }
 
     throw new AppError(
-      'Unable to fetch the transcript for this video.',
-      502,
-      'TRANSCRIPT_PROVIDER_ERROR'
-    );
+    'Unable to fetch the transcript for this video.',
+    500,
+    'TRANSCRIPT_FETCH_FAILED'
+  );
   }
+};
+
+const isTranscriptUnavailableError = (error) => {
+  const message = error?.message?.toLowerCase() ?? '';
+
+  return (
+    message.includes('transcript is disabled') ||
+    message.includes('no transcript') ||
+    message.includes('transcript not available')
+  );
 };
