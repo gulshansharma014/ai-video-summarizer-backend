@@ -1,79 +1,279 @@
 import { YoutubeTranscript } from 'youtube-transcript';
-import { AppError } from '../utils/app-error.js';
+import { fetchTranscript as fetchTranscriptFallback } from 'youtube-transcript-plus';
 
-const VIDEO_ID_PATTERN =
-  /(?:youtube\.com\/(?:.*v=|v\/|embed\/|shorts\/)|youtu\.be\/)([0-9A-Za-z_-]{11})/;
+import AppError from '../utils/AppError.js';
 
-export const extractVideoId = (url) => {
-  if (!url || typeof url !== 'string') {
+const TRANSCRIPT_TIMEOUT_MS = 20_000;
+
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+  'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/137.0.0.0 Safari/537.36';
+
+function extractVideoId(input) {
+  if (!input || typeof input !== 'string') {
     throw new AppError(
-      'Please provide a valid YouTube URL.',
+      'A YouTube URL is required.',
       400,
-      'INVALID_YOUTUBE_URL'
+      'YOUTUBE_URL_REQUIRED'
     );
   }
 
-  const match = url.trim().match(VIDEO_ID_PATTERN);
+  const trimmedInput = input.trim();
 
-  if (!match) {
-    throw new AppError(
-      'Invalid YouTube URL.',
-      400,
-      'INVALID_YOUTUBE_URL'
-    );
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmedInput)) {
+    return trimmedInput;
   }
-
-  return match[1];
-};
-
-export const fetchTranscript = async (url) => {
-  const videoId = extractVideoId(url);
 
   try {
-    const entries = await YoutubeTranscript.fetchTranscript(videoId);
+    const parsedUrl = new URL(trimmedInput);
+    const hostname = parsedUrl.hostname.replace(/^www\./, '');
 
-    if (!entries?.length) {
-      throw new AppError(
-        'No transcript is available for this video.',
-        404,
-        'TRANSCRIPT_NOT_AVAILABLE'
-      );
+    if (hostname === 'youtu.be') {
+      const videoId = parsedUrl.pathname.split('/').filter(Boolean)[0];
+
+      if (/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+        return videoId;
+      }
     }
 
-    return entries
-      .map((entry) => entry.text)
-      .filter(Boolean)
-      .join(' ')
-      .trim();
+    if (
+      hostname === 'youtube.com' ||
+      hostname === 'm.youtube.com' ||
+      hostname === 'music.youtube.com'
+    ) {
+      const queryVideoId = parsedUrl.searchParams.get('v');
+
+      if (/^[a-zA-Z0-9_-]{11}$/.test(queryVideoId)) {
+        return queryVideoId;
+      }
+
+      const pathMatch = parsedUrl.pathname.match(
+        /^\/(?:shorts|embed|live)\/([a-zA-Z0-9_-]{11})/
+      );
+
+      if (pathMatch?.[1]) {
+        return pathMatch[1];
+      }
+    }
+  } catch {
+    // Converted to a controlled validation error below.
+  }
+
+  throw new AppError(
+    'Please provide a valid YouTube URL.',
+    400,
+    'INVALID_YOUTUBE_URL'
+  );
+}
+
+function withTimeout(promise, timeoutMs, providerName) {
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(
+        new Error(
+          `${providerName} transcript request timed out after ${timeoutMs}ms`
+        )
+      );
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
+
+function normaliseTranscript(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map((entry) => ({
+      text: String(entry?.text ?? '').trim(),
+      offset: Number(entry?.offset ?? entry?.start ?? 0),
+      duration: Number(entry?.duration ?? 0),
+    }))
+    .filter((entry) => entry.text);
+}
+
+async function fetchUsingPrimaryProvider(videoId) {
+  const entries = await withTimeout(
+    YoutubeTranscript.fetchTranscript(videoId),
+    TRANSCRIPT_TIMEOUT_MS,
+    'Primary'
+  );
+
+  return normaliseTranscript(entries);
+}
+
+async function fetchUsingFallbackProvider(videoId) {
+  const entries = await withTimeout(
+    fetchTranscriptFallback(videoId, {
+      userAgent: BROWSER_USER_AGENT,
+    }),
+    TRANSCRIPT_TIMEOUT_MS,
+    'Fallback'
+  );
+
+  return normaliseTranscript(entries);
+}
+
+function isRateLimitError(error) {
+  const message = error?.message?.toLowerCase() ?? '';
+
+  return (
+    message.includes('too many request') ||
+    message.includes('rate limit') ||
+    message.includes('429')
+  );
+}
+
+function isTimeoutError(error) {
+  return error?.message?.toLowerCase().includes('timed out');
+}
+
+function isTranscriptUnavailableError(error) {
+  const message = error?.message?.toLowerCase() ?? '';
+
+  return (
+    message.includes('transcript is disabled') ||
+    message.includes('transcript disabled') ||
+    message.includes('no transcript') ||
+    message.includes('transcript not available') ||
+    message.includes('could not retrieve')
+  );
+}
+
+export async function fetchTranscript(videoUrl) {
+  const videoId = extractVideoId(videoUrl);
+  const providerFailures = [];
+
+  try {
+    console.info('Trying primary transcript provider', {
+      videoId,
+    });
+
+    const transcriptEntries =
+      await fetchUsingPrimaryProvider(videoId);
+
+    if (transcriptEntries.length > 0) {
+      console.info('Primary transcript provider succeeded', {
+        videoId,
+        entries: transcriptEntries.length,
+      });
+
+      return {
+        videoId,
+        transcript: transcriptEntries
+          .map((entry) => entry.text)
+          .join(' ')
+          .trim(),
+        entries: transcriptEntries,
+        provider: 'youtube-transcript',
+      };
+    }
+
+    providerFailures.push({
+      provider: 'youtube-transcript',
+      message: 'Provider returned an empty transcript.',
+    });
   } catch (error) {
-      console.error('Raw transcript provider error:', {
+    providerFailures.push({
+      provider: 'youtube-transcript',
+      message: error?.message ?? 'Unknown primary provider error',
+    });
+
+    console.warn('Primary transcript provider failed', {
+      videoId,
+      name: error?.name,
+      message: error?.message,
+    });
+  }
+
+  try {
+    console.info('Trying fallback transcript provider', {
+      videoId,
+    });
+
+    const transcriptEntries =
+      await fetchUsingFallbackProvider(videoId);
+
+    if (transcriptEntries.length > 0) {
+      console.info('Fallback transcript provider succeeded', {
+        videoId,
+        entries: transcriptEntries.length,
+      });
+
+      return {
+        videoId,
+        transcript: transcriptEntries
+          .map((entry) => entry.text)
+          .join(' ')
+          .trim(),
+        entries: transcriptEntries,
+        provider: 'youtube-transcript-plus',
+      };
+    }
+
+    providerFailures.push({
+      provider: 'youtube-transcript-plus',
+      message: 'Provider returned an empty transcript.',
+    });
+  } catch (error) {
+    providerFailures.push({
+      provider: 'youtube-transcript-plus',
+      message: error?.message ?? 'Unknown fallback provider error',
+    });
+
+    console.error('Fallback transcript provider failed', {
+      videoId,
       name: error?.name,
       message: error?.message,
       stack: error?.stack,
     });
 
-    if (isTranscriptUnavailableError(error)) {
+    if (isRateLimitError(error)) {
       throw new AppError(
-        'The transcript provider could not retrieve captions for this video.',
-        422,
-        'TRANSCRIPT_PROVIDER_UNAVAILABLE'
+        'YouTube temporarily limited transcript requests. Please try again later.',
+        429,
+        'YOUTUBE_RATE_LIMITED'
       );
     }
 
-    throw new AppError(
-    'Unable to fetch the transcript for this video.',
-    500,
-    'TRANSCRIPT_FETCH_FAILED'
-  );
+    if (isTimeoutError(error)) {
+      throw new AppError(
+        'Transcript extraction timed out. Please try again.',
+        504,
+        'TRANSCRIPT_TIMEOUT'
+      );
+    }
   }
-};
 
-const isTranscriptUnavailableError = (error) => {
-  const message = error?.message?.toLowerCase() ?? '';
+  console.error('All transcript providers failed', {
+    videoId,
+    providerFailures,
+  });
 
-  return (
-    message.includes('transcript is disabled') ||
-    message.includes('no transcript') ||
-    message.includes('transcript not available')
+  const allUnavailable = providerFailures.every((failure) =>
+    isTranscriptUnavailableError({
+      message: failure.message,
+    })
   );
-};
+
+  if (allUnavailable) {
+    throw new AppError(
+      'A transcript could not be retrieved for this video.',
+      422,
+      'TRANSCRIPT_NOT_RETRIEVABLE'
+    );
+  }
+
+  throw new AppError(
+    'Transcript extraction failed unexpectedly.',
+    500,
+    'TRANSCRIPT_EXTRACTION_FAILED'
+  );
+}
