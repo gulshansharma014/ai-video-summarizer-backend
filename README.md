@@ -1,13 +1,24 @@
-# Backend - Node.js + Express.js
+# AI Video Summarizer Backend
 
-This folder contains the Express.js backend for the YouTube Transcript Extractor.
+[![Backend CI](https://github.com/gulshansharma014/ai-video-summarizer-backend/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/gulshansharma014/ai-video-summarizer-backend/actions/workflows/backend-ci.yml)
 
-## Features
-✅ Handles transcript extraction  
-✅ Uses Gemini API for AI-enhanced content formatting  
-✅ Generates downloadable PDFs with improved text styling  
+Express API for YouTube transcript extraction, Gemini-powered transcript
+analysis and streamed PDF generation.
 
-## Setup Guide
-1. **Install Dependencies**
-   ```bash
-   npm install
+## Architecture
+
+## API Endpoints
+
+## Project Structure
+
+## Environment Variables
+
+## Running Locally
+
+## Testing
+
+## Security
+
+## Error Response Format
+
+## Deployment
